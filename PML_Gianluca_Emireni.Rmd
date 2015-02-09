@@ -1,0 +1,102 @@
+---
+title: "PML exercise"
+author: "Gianluca Emireni"
+date: "February 9th 2015"
+output: html_document
+---
+
+---
+# Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. 
+# These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, 
+# to find patterns in their behavior, or because they are tech geeks. 
+# One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, 
+# your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+# They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+# More information is available from the website here: http://groupware.les.inf.puc-rio.br/har 
+# (see the section on the Weight Lifting Exercise Dataset). 
+--- 
+Loading libraries
+```{r, eval=T, }
+library(randomForest)
+library(caret)
+```
+
+Reading datasets
+```{r}
+train <- read.csv("/Users/gianluca/Documents/PML/pml-training.csv", sep=",", quote="\"", head=T)
+test <- read.csv("/Users/gianluca/Documents/PML/pml-testing.csv", sep=",", quote="\"", head=T)
+```
+
+
+Adjust timestamps and remove record counter, not functional for classification
+```{r}
+train$cvtd_timestamp <- as.numeric(strptime(as.character(train$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
+train <- train[,-1]
+```
+
+
+Some variables are read as factors, I transform them in numeric
+```{r, echo=FALSE}
+for(i in 1:ncol(train))
+{
+  col <- colnames(train)[i]
+  print(c(col, class(col)))
+  if( is.factor(train[,col]) & !(col %in% c("classe","user_name","new_window")) ) {
+    train[,col] <- as.numeric(as.character(train[,col]))
+  }
+}
+```
+
+Variables with no valid values (not NA, NULL, NaN, etc.) are excluded from the sets
+```{r, echo=FALSE}
+invalidRegressors <- c()
+for(i in 1:ncol(train))
+{
+  col <- colnames(train)[i]
+  if(all(is.na(train[,col]))) {
+    invalidRegressors <- c(invalidRegressors, i)
+  }
+}
+```
+
+Excluding constant variables and variables with near zero variance
+```{r, echo=FALSE}
+nzv <- nearZeroVar(train)
+train <- train[,-nzv]
+test <- test[,-nzv]
+```
+
+# highly correlated variables
+# findCorrelation(cor(train), cutoff = .75)
+
+Filling NA values (only numeric regressors, excluding factors)
+```{r}
+factor_indexes <- which(colnames(train) %in% c("classe","user_name"))
+# 1 5 150
+preObj <- preProcess(train[,-factor_indexes], na.remove=T, method = c("center", "scale", "knnImpute"))
+# standardizing (BoxCox ?)
+stdTrain <- predict(preObj, train[,-factor_indexes])
+```
+
+Re-attaching factors
+```{r}
+stdTrain$user_name <- train$user_name
+stdTrain$classe <- train$classe
+```
+
+
+Transforming factors to dummies (excluding the response variable *classe*)
+```{r}
+train2 <- data.frame(model.matrix(classe ~ . -1, data=stdTrain))
+train2$classe <- train$classe
+```
+
+
+# Random Forest Cross-Valdidation for feature selection
+rfcv(trainx=subset(train2, select = -classe), trainy=train2$classe, na.action = na.exclude)
+rf <- randomForest(x=subset(train, select = -classe), y=train$classe, data=train, xtest = subset(test, select = -classe), ytest = test$classe, ntree = 100)
+
+
+
+levels(train$new_window)[1:10]
+cor(subset(train, select = -classe))
