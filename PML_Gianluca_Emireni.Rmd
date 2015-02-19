@@ -5,98 +5,111 @@ date: "February 9th 2015"
 output: html_document
 ---
 
----
-# Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. 
-# These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, 
-# to find patterns in their behavior, or because they are tech geeks. 
-# One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, 
-# your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
-# They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
-# More information is available from the website here: http://groupware.les.inf.puc-rio.br/har 
-# (see the section on the Weight Lifting Exercise Dataset). 
---- 
-Loading libraries
+
+## Loading libraries
 ```{r, eval=T, }
 library(randomForest)
 library(caret)
 ```
 
-Reading datasets
-```{r}
-train <- read.csv("/Users/gianluca/Documents/PML/pml-training.csv", sep=",", quote="\"", head=T)
-test <- read.csv("/Users/gianluca/Documents/PML/pml-testing.csv", sep=",", quote="\"", head=T)
+## Reading datasets. 
+From previous attempts, it turns out that there are different kind of _invalid_ data in training and testing set, in this case I found 'NA' and '#DIV/0!' values and identified as 'NA'. 
+```{r, eval=F, }
+train <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", sep=",", quote="\"", head=T, na.strings=c("NA","#DIV/0!"))
+test <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", sep=",", quote="\"", head=T, na.strings=c("NA","#DIV/0!"))
 ```
 
-
-Adjust timestamps and remove record counter, not functional for classification
-```{r}
+## Data cleaning
+All data cleaning procedures applied on the training dataset will be done also on the testing set.
+Here I transform cvtd_timestamp from date to timestamp, then I remove the record counter (first column, not useful for our classification) for both datasets.
+```{r, eval=F, }
 train$cvtd_timestamp <- as.numeric(strptime(as.character(train$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
+test$cvtd_timestamp <- as.numeric(strptime(as.character(test$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
 train <- train[,-1]
+test <- test[,-1]
 ```
 
+Variables without valid values are excluded from the sets.
+There are some variables with a lot of NA values. These variables are not useful for classification.
+We can set a lower bound for the proportion of non-NA values for each predictor to be considered valid. So, if the proportion is below that limit, the variable should be eliminated for being uneffective in the estimate of the response variable/classification of observation.
 
-Some variables are read as factors, I transform them in numeric
-```{r, echo=FALSE}
-for(i in 1:ncol(train))
+Given an array x, this functions returns the proportion of NA.
+```{r, eval=F, }
+na.proportion <- function(x)
 {
-  col <- colnames(train)[i]
-  print(c(col, class(col)))
-  if( is.factor(train[,col]) & !(col %in% c("classe","user_name","new_window")) ) {
-    train[,col] <- as.numeric(as.character(train[,col]))
-  }
+  prop <- sum(is.na(x))/length(x)
 }
 ```
 
-Variables with no valid values (not NA, NULL, NaN, etc.) are excluded from the sets
-```{r, echo=FALSE}
-invalidRegressors <- c()
-for(i in 1:ncol(train))
-{
-  col <- colnames(train)[i]
-  if(all(is.na(train[,col]))) {
-    invalidRegressors <- c(invalidRegressors, i)
-  }
-}
+Applying the function to all the variables of training set
+```{r, eval=F, }
+train.nas <- apply(train, 2, na.proportion)
+```
+All the variables with more than 60% of NA values are excluded from training and testing set
+```{r, eval=F, }
+excluded.vars <- which(train.nas > 0.60)
+```
+The position of the variables in training and testing set is the same, except for the fact that
+```{r, eval=F, }
+# colnames(train)[160] = "classe"
+# colnames(test)[160] = "problem_id"
 ```
 
-Excluding constant variables and variables with near zero variance
-```{r, echo=FALSE}
-nzv <- nearZeroVar(train)
-train <- train[,-nzv]
-test <- test[,-nzv]
+New training and testing set are created, dropping the excluded variables from previous datasets.
+```{r, eval=F, }
+train2 <- train[,-excluded.vars]
+test2 <- test[,-excluded.vars]
+```
+The total number of variables for each set is reduced to 59 (58 regressors).
+
+Now we search for "near zero variance" variables, made of almost constant values that doesn't improve the quality of our classification.
+```{r, eval=F, }
+nzv <- nearZeroVar(train2, saveMetrics = T)
+near_zero_var_cols <- rownames(nzv[nzv$nzv,])
+near_zero_var_indexes <- which(colnames(train2)==rownames(nzv[nzv$nzv,]))
+near_zero_var_indexes
+```
+# [1] "new_window"
+The only remaining variable with "near zero variance" is the factor new_window, dropped from both datasets.
+```{r, eval=F, }
+train2 <- train2[,-near_zero_var_indexes]
+test2 <- test2[,-near_zero_var_indexes]
 ```
 
-# highly correlated variables
-# findCorrelation(cor(train), cutoff = .75)
-
-Filling NA values (only numeric regressors, excluding factors)
-```{r}
-factor_indexes <- which(colnames(train) %in% c("classe","user_name"))
-# 1 5 150
-preObj <- preProcess(train[,-factor_indexes], na.remove=T, method = c("center", "scale", "knnImpute"))
-# standardizing (BoxCox ?)
-stdTrain <- predict(preObj, train[,-factor_indexes])
+Now we will look for highly correlated variables.
+To do this, we need a data.frame entirely composed by numeric variables: 
+```{r, eval=F, }
+numeric_vars <- sapply(train2, is.numeric)
+highly_correlated_cols <- findCorrelation(cor(train2[,numeric_vars]), cutoff = .90)
 ```
 
-Re-attaching factors
-```{r}
-stdTrain$user_name <- train$user_name
-stdTrain$classe <- train$classe
+The function *findCorrelation* searches through a correlation matrix and returns a vector of integers corresponding to columns to remove to reduce pair-wise correlation. This function suggest the elimination of some columns from training and testing datasets.
+```{r, eval=F, }
+excluded.colnames <- colnames(train2[,numeric_vars])[highly_correlated_cols]
+excluded.vars <- which(colnames(train2) %in% excluded.colnames)
+excluded.vars
 ```
-
-
-Transforming factors to dummies (excluding the response variable *classe*)
-```{r}
-train2 <- data.frame(model.matrix(classe ~ . -1, data=stdTrain))
-train2$classe <- train$classe
+New training and testing datasets are created dropping the high-correlated variables. 
+The loss of information is limited in this case, and we gain in terms of model adaptability, reducing the risk of overfitting.
+```{r, eval=F, }
+train3 <- train2[, -excluded.vars]
+test3 <- test2[, -excluded.vars]
 ```
+Now each dataset have 51 variables.
 
+The imputation of values for filling NA values is no more needed, now that we have removed the variables plagued by NA's.
 
-# Random Forest Cross-Valdidation for feature selection
-rfcv(trainx=subset(train2, select = -classe), trainy=train2$classe, na.action = na.exclude)
-rf <- randomForest(x=subset(train, select = -classe), y=train$classe, data=train, xtest = subset(test, select = -classe), ytest = test$classe, ntree = 100)
+## ML models specification and evaluation
+We have 2 datasets: train and test set.
+Training set is big enough to be divided in 2 parts: a real *training set* and a *validation set*, useful for out-of-sample evaluation of our classification. The test set remains the same.
 
-
-
-levels(train$new_window)[1:10]
-cor(subset(train, select = -classe))
+I'm using 60% of observations for the _training set_ and the remaining 40% for the _validation set_.
+```{r, eval=F, }
+inTrain <- createDataPartition(y=train3$classe, p=0.6, list=FALSE)
+training <- train3[inTrain, ]
+validation <- train3[-inTrain, ]
+```
+Removing the "problem_id" variable, progressive variable not present in training set.
+```{r, eval=F, }
+testing <- test3[,-51]
+```
