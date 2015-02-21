@@ -1,115 +1,279 @@
 ---
-title: "PML exercise"
+title: "Practical Machine Learning - Prediction Assignment"
 author: "Gianluca Emireni"
-date: "February 9th 2015"
+date: "February 20th, 2015"
 output: html_document
 ---
 
+# Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
 
+# Solution
 ## Loading libraries
-```{r, eval=T, }
+```{r libraries, eval=T, message=F}
 library(randomForest)
 library(caret)
+library(MASS)
+library(rpart)
 ```
 
-## Reading datasets. 
-From previous attempts, it turns out that there are different kind of _invalid_ data in training and testing set, in this case I found 'NA' and '#DIV/0!' values and identified as 'NA'. 
-```{r, eval=F, }
+Setting a random number generator seed let you replicate the same results.
+```{r seed, eval=T, message=F}
+set.seed(1000)
+```
+
+
+## Reading datasets
+From previous attempts, it turns out that there are different kind of _invalid_ data in training and testing set, in this case I found 'NA' and '#DIV/0!' values and identified them as 'NA'. 
+```{r load_data, eval=T, }
 train <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", sep=",", quote="\"", head=T, na.strings=c("NA","#DIV/0!"))
 test <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", sep=",", quote="\"", head=T, na.strings=c("NA","#DIV/0!"))
 ```
 
 ## Data cleaning
-All data cleaning procedures applied on the training dataset will be done also on the testing set.
-Here I transform cvtd_timestamp from date to timestamp, then I remove the record counter (first column, not useful for our classification) for both datasets.
-```{r, eval=F, }
+All data cleaning procedures used on the training set will be applied also on the testing set.
+Here I transform ```cvtd_timestamp``` from date to timestamp, then I remove the record counter (first column, not useful for our classification) in both datasets.
+```{r dataclean1, eval=T, }
 train$cvtd_timestamp <- as.numeric(strptime(as.character(train$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
 test$cvtd_timestamp <- as.numeric(strptime(as.character(test$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
 train <- train[,-1]
 test <- test[,-1]
 ```
 
-Variables without valid values are excluded from the sets.
+Variables without valid values are excluded from the datasets.
 There are some variables with a lot of NA values. These variables are not useful for classification.
-We can set a lower bound for the proportion of non-NA values for each predictor to be considered valid. So, if the proportion is below that limit, the variable should be eliminated for being uneffective in the estimate of the response variable/classification of observation.
+We can set a lower bound for the proportion of non-NA values for each predictor to be considered valid. So, if the proportion is below that limit, the variable should be eliminated, being ineffective for our purpose: classification of new observations.
 
-Given an array x, this functions returns the proportion of NA.
-```{r, eval=F, }
+Given an array x, this function returns the proportion of NA.
+```{r data_na, eval=T, }
 na.proportion <- function(x)
 {
   prop <- sum(is.na(x))/length(x)
 }
 ```
 
-Applying the function to all the variables of training set
-```{r, eval=F, }
+Applying the function to all the variables of training set.
+```{r data_na2, eval=T, }
 train.nas <- apply(train, 2, na.proportion)
 ```
-All the variables with more than 60% of NA values are excluded from training and testing set
-```{r, eval=F, }
+All the variables with more than 60% of NA values are excluded from training and testing set.
+```{r data_na3, eval=T, }
 excluded.vars <- which(train.nas > 0.60)
 ```
-The position of the variables in training and testing set is the same, except for the fact that
-```{r, eval=F, }
-# colnames(train)[160] = "classe"
-# colnames(test)[160] = "problem_id"
+The position of the variables in training and testing set is the same, except for the fact that:
+```{r , eval=T, }
+colnames(train)[159]
+colnames(test)[159]
 ```
+the last variable in the training set is the response variable _classe_, while in the testing set is the counter _ problem_id _.
 
-New training and testing set are created, dropping the excluded variables from previous datasets.
-```{r, eval=F, }
+New training and testing set are created, dropping the excluded variables (with too much NA's) from previous datasets.
+```{r, eval=T, }
 train2 <- train[,-excluded.vars]
 test2 <- test[,-excluded.vars]
 ```
 The total number of variables for each set is reduced to 59 (58 regressors).
 
-Now we search for "near zero variance" variables, made of almost constant values that doesn't improve the quality of our classification.
-```{r, eval=F, }
+Now we search for "near zero variance" variables, made of almost constant values (with no variability) that don't improve the quality of our classification.
+```{r, eval=T, }
 nzv <- nearZeroVar(train2, saveMetrics = T)
 near_zero_var_cols <- rownames(nzv[nzv$nzv,])
 near_zero_var_indexes <- which(colnames(train2)==rownames(nzv[nzv$nzv,]))
 near_zero_var_indexes
 ```
-# [1] "new_window"
-The only remaining variable with "near zero variance" is the factor new_window, dropped from both datasets.
-```{r, eval=F, }
+
+The only remaining variable with "near zero variance" is the factor ```new_window```, dropped from both datasets.
+```{r, eval=T, }
 train2 <- train2[,-near_zero_var_indexes]
 test2 <- test2[,-near_zero_var_indexes]
 ```
 
 Now we will look for highly correlated variables.
-To do this, we need a data.frame entirely composed by numeric variables: 
-```{r, eval=F, }
+To do that, we need a data.frame entirely composed by numeric variables: 
+```{r, eval=T, }
 numeric_vars <- sapply(train2, is.numeric)
 highly_correlated_cols <- findCorrelation(cor(train2[,numeric_vars]), cutoff = .90)
 ```
 
-The function *findCorrelation* searches through a correlation matrix and returns a vector of integers corresponding to columns to remove to reduce pair-wise correlation. This function suggest the elimination of some columns from training and testing datasets.
-```{r, eval=F, }
+The function **findCorrelation** searches through a correlation matrix and returns a vector of integers corresponding to columns to remove to reduce pair-wise correlation. This function suggest the elimination of some columns from training and testing datasets, searching for correlation values over 90% (in absolute value).
+```{r, eval=T, }
 excluded.colnames <- colnames(train2[,numeric_vars])[highly_correlated_cols]
 excluded.vars <- which(colnames(train2) %in% excluded.colnames)
 excluded.vars
 ```
+
+Some correlation coefficients of the high correlated variables with other variables of the training dataset:
+```{r, eval=T, }
+cor(train2$cvtd_timestamp, train2$raw_timestamp_part_1)
+cor(train2$accel_belt_x, train2$pitch_belt)
+cor(train2$accel_belt_y, train2$accel_belt_z)
+cor(train2$accel_belt_z, train2$roll_belt)
+cor(train2$roll_belt, train2$accel_belt_z)
+cor(train2$gyros_arm_y, train2$gyros_arm_x)
+cor(train2$gyros_forearm_z, train2$gyros_dumbbell_z)
+cor(train2$gyros_dumbbell_x, train2$gyros_dumbbell_z)
+```
+
+Removing strongly correlated variables from the training dataset will reduce the risk of overfitting on the training data, making our model more able to predict the correct output for other examples.
+
 New training and testing datasets are created dropping the high-correlated variables. 
-The loss of information is limited in this case, and we gain in terms of model adaptability, reducing the risk of overfitting.
-```{r, eval=F, }
+```{r, eval=T, }
 train3 <- train2[, -excluded.vars]
 test3 <- test2[, -excluded.vars]
 ```
-Now each dataset have 51 variables.
+Now each dataset have 50 variables.
 
-The imputation of values for filling NA values is no more needed, now that we have removed the variables plagued by NA's.
+At this point, there is no need to impute/fill NA values, now that we have removed all the variables plagued by NA's.
+```{r, eval=T, }
+any(is.na(train3))
+any(is.na(test3))
+```
 
-## ML models specification and evaluation
-We have 2 datasets: train and test set.
-Training set is big enough to be divided in 2 parts: a real *training set* and a *validation set*, useful for out-of-sample evaluation of our classification. The test set remains the same.
+Also, for the moment we aren't making any transformation (centering, scaling, Box-Cox, etc.) on our datasets, because some of the models that we are specifying (classification trees and random forests) are not affected by monotone transformation of data, while in others "model based" algorithms (LDA, QDA, etc.) is possible to specify an embedded ```preProcess``` clause. 
 
-I'm using 60% of observations for the _training set_ and the remaining 40% for the _validation set_.
-```{r, eval=F, }
+
+## ML models specification
+We have 2 datasets: training and testing set.
+Training set is big enough to be divided in 2 parts: a real **training set** and a **validation set**, useful for out-of-sample errors evaluation of our classification. The **testing set** remains the same and it will be used to estimate and submit the exercise answers.
+
+We will use the 60% of observations for the _training set_ and the remaining 40% for the _validation set_.
+```{r, eval=T, }
 inTrain <- createDataPartition(y=train3$classe, p=0.6, list=FALSE)
 training <- train3[inTrain, ]
 validation <- train3[-inTrain, ]
 ```
 Removing the "problem_id" variable, progressive variable not present in training set.
-```{r, eval=F, }
-testing <- test3[,-51]
+```{r, eval=T, }
+testing <- test3[,-50]
 ```
+
+### Model based methods
+#### First model: linear discriminant analysis
+The first model based method we'll try is the linear discriminant analysis. Command specification is quite easy, as it doesn't require tuning parameters.
+```{r lda, eval=T, message=F, warning=F}
+fitLDA <- train(classe ~ ., data = training, method="lda", preProcess = c("center","scale"))
+predFitLDA <- predict(fitLDA, newdata=validation)
+confMatLDA <- confusionMatrix(predFitLDA, validation$classe)
+```
+
+#### Second model: quadratic discriminant analysis
+The second method is the quadratic discriminant analysis.
+```{r qda, eval=T, }
+fitQDA <- train(classe ~ ., data = training, method="qda", preProcess = c("center","scale"))
+predFitQDA <- predict(fitQDA, newdata=validation)
+confMatQDA <- confusionMatrix(predFitQDA, validation$classe)
+```
+
+
+
+## Predicting with trees and random forests
+
+### First model: classification tree
+I'm specifying a classification tree on the training set, using a 4-fold cross-validation to reduce the risk of overfitting.
+```{r rpart, eval=T, }
+fitCT <- train(classe ~ ., data = training, trControl = trainControl(method = "cv", number = 4), method="rpart")
+predFitCT <- predict(fitCT, newdata=validation)
+confMatCT <- confusionMatrix(predFitCT, validation$classe)
+```
+
+```{r tree_fig, fig.height=7, fig.width=8}
+plot(fitCT$finalModel, main="Classification tree")
+text(fitCT$finalModel, cex=0.8, all = T, pretty=T, use.n = T)
+```
+
+Previously I tried some different specification of the classification tree parameters, changing the cross validation/resampling method or adding a center/scale transformation on the data. The only result I got is a different accuracy (calculated only on the training data), but the "out of sample" accuracy, sensitivity and specificity of predictions remains the same.
+
+Some examples:
+```{r rpart2, eval=T, }
+fitCT2 <- train(classe~., data=training, method="rpart", trControl =  trainControl(method="repeatedcv", number = 4, repeats = 10))
+fitCT3 <- train(classe~., data=training, method="rpart", trControl =  trainControl(method="boot", repeats = 25))
+fitCT4 <- train(classe~., data=training, method="rpart", trControl =  trainControl(method="cv", number = 4), preProcess=c("center","scale"))
+predFitCT2 <- predict(fitCT2, newdata=validation)
+predFitCT3 <- predict(fitCT3, newdata=validation)
+predFitCT4 <- predict(fitCT4, newdata=validation)
+confMatCT2 <- confusionMatrix(predFitCT2, validation$classe)
+confMatCT3 <- confusionMatrix(predFitCT3, validation$classe)
+confMatCT4 <- confusionMatrix(predFitCT4, validation$classe)
+confMatCT2$byClass
+confMatCT3$byClass
+confMatCT4$byClass
+```
+
+### Second model: random forest
+I'm specifying a random forest on the training set, with a 4-fold cross validation on training data.
+```{r rf, eval=T, }
+fitRF <- train(classe ~ ., data = training, method="rf", trControl = trainControl(method = "cv", number = 4))
+predFitRF <- predict(fitRF, newdata=validation)
+confMatRF <- confusionMatrix(predFitRF, validation$classe)
+```
+
+
+## Models evaluation
+### Reading the confusion matrix
+The more interesting values that we can find in the confusion matrix are:
+* **overall accuracy**: the global proportion of guessed predictions in the validation/testing set;
+And for each response variable class:
+
+* **sensitivity** or true positive rate. If our class of interest is $X$, this is defined as $\frac{\text{# of estimated} X}{\text{# of real} X}$. This is evaluated for every class;
+
+* the **specificity** or true negative rate: defined as $\frac{\text{# of estimated} \overline{X}}{\text{# of real} \overline{X}}$;
+
+* the **precision or positive predictive value**: among those estimated of class $X$, how many really belongs to class $X$?;
+
+* the **negative predictive value** among those estimated of class $\overline{X}$, how many really belongs to class $\overline{X}$?
+
+
+### Linear discriminant analysis results
+```{r res_lda, eval=T, }
+confMatLDA
+```
+### Quadratic discriminant analysis results
+```{r res_qda, eval=T, }
+confMatQDA
+```
+
+### Classification tree results
+```{r res_tree, eval=T, }
+confMatCT
+```
+### Random forest results
+```{r res_rf, eval=T, }
+confMatRF
+```
+
+The **random forest** classification method is the **best** under any point of view.
+His confusion matrix shows very good results:
+
+* the accuracy is over 99.9%
+
+* the sensitivity is very high for each class, always over 99.8%
+
+* the specificity is very high for each class, always over 99.9%
+
+* the positive predictive value is very high for each class, always over 99.8%
+
+* the negative predictive is very high for each class, always over 99.9%
+
+
+This is the chosen ML method used to predict the _class_ variable in the **testing** dataset.
+
+## Final results
+This function create a single file for each prediction.
+```{r final_res, eval=T, }
+pml_write_files = function(x) {
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+
+setwd("/Users/gianluca/Documents/PML/prediction_assignment")
+testingPred <- predict(fitRF, newdata = testing)
+
+# Predictions made on the testing set
+testingPred
+# Writing one file per predicted outcome on the testing set
+pml_write_files(testingPred)
+```
+ 
