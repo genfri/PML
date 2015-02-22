@@ -1,0 +1,540 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Pml by genfri</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>Pml</h1>
+        <p>Practical Machine Learning course @coursera.org (Johns Hopkins University)</p>
+
+        <p class="view"><a href="https://github.com/genfri/PML">View the Project on GitHub <small>genfri/PML</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/genfri/PML/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/genfri/PML/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/genfri/PML">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <p>&lt;!DOCTYPE html&gt;</p>
+
+<p></p>
+
+<p></p>
+
+<p>
+
+</p>
+
+<p></p>
+
+<p></p>Practical Machine Learning - Prediction Assignment
+
+
+
+<p>
+</p>
+
+
+
+
+
+
+
+code{white-space: pre;}
+
+<p></p>
+
+
+
+
+  pre:not([class]) {
+    background-color: white;
+  }
+
+
+
+
+<p></p>
+
+<p></p>
+
+
+.main-container {
+  max-width: 940px;
+  margin-left: auto;
+  margin-right: auto;
+}
+code {
+  color: inherit;
+  background-color: rgba(0, 0, 0, 0.04);
+}
+img { 
+  max-width:100%; 
+  height: auto; 
+}
+
+
+<div>
+
+
+<div id="header">
+<h1>
+<a id="practical-machine-learning---prediction-assignment" class="anchor" href="#practical-machine-learning---prediction-assignment" aria-hidden="true"><span class="octicon octicon-link"></span></a>Practical Machine Learning - Prediction Assignment</h1>
+<h4>
+<a id="gianluca-emireni" class="anchor" href="#gianluca-emireni" aria-hidden="true"><span class="octicon octicon-link"></span></a><em>Gianluca Emireni</em>
+</h4>
+<h4>
+<a id="february-20th-2015" class="anchor" href="#february-20th-2015" aria-hidden="true"><span class="octicon octicon-link"></span></a><em>February 20th, 2015</em>
+</h4>
+</div>
+
+<div id="background">
+<h1>
+<a id="background" class="anchor" href="#background" aria-hidden="true"><span class="octicon octicon-link"></span></a>Background</h1>
+<p>Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <a href="http://groupware.les.inf.puc-rio.br/har">http://groupware.les.inf.puc-rio.br/har</a> (see the section on the Weight Lifting Exercise Dataset).</p>
+</div>
+
+<div id="solution">
+<h1>
+<a id="solution" class="anchor" href="#solution" aria-hidden="true"><span class="octicon octicon-link"></span></a>Solution</h1>
+<div id="loading-libraries">
+<h2>
+<a id="loading-libraries" class="anchor" href="#loading-libraries" aria-hidden="true"><span class="octicon octicon-link"></span></a>Loading libraries</h2>
+<pre><code>library(randomForest)
+library(caret)
+library(MASS)
+library(rpart)</code></pre>
+<p>Setting a random number generator seed let you replicate the same results.</p>
+<pre><code>set.seed(1000)</code></pre>
+</div>
+
+<div id="reading-datasets">
+<h2>
+<a id="reading-datasets" class="anchor" href="#reading-datasets" aria-hidden="true"><span class="octicon octicon-link"></span></a>Reading datasets</h2>
+<p>From previous attempts, it turns out that there are different kind of <em>invalid</em> data in training and testing set, in this case I found ‘NA’ and ‘#DIV/0!’ values and identified them as ‘NA’.</p>
+<pre><code>train &lt;- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", sep=",", quote="\"", head=T, na.strings=c("NA","#DIV/0!"))
+test &lt;- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", sep=",", quote="\"", head=T, na.strings=c("NA","#DIV/0!"))</code></pre>
+</div>
+
+<div id="data-cleaning">
+<h2>
+<a id="data-cleaning" class="anchor" href="#data-cleaning" aria-hidden="true"><span class="octicon octicon-link"></span></a>Data cleaning</h2>
+<p>All data cleaning procedures used on the training set will be applied also on the testing set. Here I transform <code>cvtd_timestamp</code> from date to timestamp, then I remove the record counter (first column, not useful for our classification) in both datasets.</p>
+<pre><code>train$cvtd_timestamp &lt;- as.numeric(strptime(as.character(train$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
+test$cvtd_timestamp &lt;- as.numeric(strptime(as.character(test$cvtd_timestamp), format = "%d/%m/%Y %H:%M"))
+train &lt;- train[,-1]
+test &lt;- test[,-1]</code></pre>
+<p>Variables without valid values are excluded from the datasets. There are some variables with a lot of NA values. These variables are not useful for classification. We can set a lower bound for the proportion of non-NA values for each predictor to be considered valid. So, if the proportion is below that limit, the variable should be eliminated, being ineffective for our purpose: classification of new observations.</p>
+<p>Given an array x, this function returns the proportion of NA.</p>
+<pre><code>na.proportion &lt;- function(x)
+{
+  prop &lt;- sum(is.na(x))/length(x)
+}</code></pre>
+<p>Applying the function to all the variables of training set.</p>
+<pre><code>train.nas &lt;- apply(train, 2, na.proportion)</code></pre>
+<p>All the variables with more than 60% of NA values are excluded from training and testing set.</p>
+<pre><code>excluded.vars &lt;- which(train.nas &gt; 0.60)</code></pre>
+<p>The position of the variables in training and testing set is the same, except for the fact that:</p>
+<pre><code>colnames(train)[159]</code></pre>
+<pre><code>## [1] "classe"</code></pre>
+<pre><code>colnames(test)[159]</code></pre>
+<pre><code>## [1] "problem_id"</code></pre>
+<p>the last variable in the training set is the response variable <em>classe</em>, while in the testing set is the counter _ problem_id _.</p>
+<p>New training and testing set are created, dropping the excluded variables (with too much NA’s) from previous datasets.</p>
+<pre><code>train2 &lt;- train[,-excluded.vars]
+test2 &lt;- test[,-excluded.vars]</code></pre>
+<p>The total number of variables for each set is reduced to 59 (58 regressors).</p>
+<p>Now we search for “near zero variance” variables, made of almost constant values (with no variability) that don’t improve the quality of our classification.</p>
+<pre><code>nzv &lt;- nearZeroVar(train2, saveMetrics = T)
+near_zero_var_cols &lt;- rownames(nzv[nzv$nzv,])
+near_zero_var_indexes &lt;- which(colnames(train2)==rownames(nzv[nzv$nzv,]))
+near_zero_var_indexes</code></pre>
+<pre><code>## [1] 5</code></pre>
+<p>The only remaining variable with “near zero variance” is the factor <code>new_window</code>, dropped from both datasets.</p>
+<pre><code>train2 &lt;- train2[,-near_zero_var_indexes]
+test2 &lt;- test2[,-near_zero_var_indexes]</code></pre>
+<p>Now we will look for highly correlated variables. To do that, we need a data.frame entirely composed by numeric variables:</p>
+<pre><code>numeric_vars &lt;- sapply(train2, is.numeric)
+highly_correlated_cols &lt;- findCorrelation(cor(train2[,numeric_vars]), cutoff = .90)</code></pre>
+<p>The function <strong>findCorrelation</strong> searches through a correlation matrix and returns a vector of integers corresponding to columns to remove to reduce pair-wise correlation. This function suggest the elimination of some columns from training and testing datasets, searching for correlation values over 90% (in absolute value).</p>
+<pre><code>excluded.colnames &lt;- colnames(train2[,numeric_vars])[highly_correlated_cols]
+excluded.vars &lt;- which(colnames(train2) %in% excluded.colnames)
+excluded.vars</code></pre>
+<pre><code>## [1]  4  6 13 14 15 24 36 51</code></pre>
+<p>Some correlation coefficients of the high correlated variables with other variables of the training dataset:</p>
+<pre><code>cor(train2$cvtd_timestamp, train2$raw_timestamp_part_1)</code></pre>
+<pre><code>## [1] 1</code></pre>
+<pre><code>cor(train2$accel_belt_x, train2$pitch_belt)</code></pre>
+<pre><code>## [1] -0.9657334</code></pre>
+<pre><code>cor(train2$accel_belt_y, train2$accel_belt_z)</code></pre>
+<pre><code>## [1] -0.9333854</code></pre>
+<pre><code>cor(train2$accel_belt_z, train2$roll_belt)</code></pre>
+<pre><code>## [1] -0.9920085</code></pre>
+<pre><code>cor(train2$roll_belt, train2$accel_belt_z)</code></pre>
+<pre><code>## [1] -0.9920085</code></pre>
+<pre><code>cor(train2$gyros_arm_y, train2$gyros_arm_x)</code></pre>
+<pre><code>## [1] -0.9181821</code></pre>
+<pre><code>cor(train2$gyros_forearm_z, train2$gyros_dumbbell_z)</code></pre>
+<pre><code>## [1] 0.9330422</code></pre>
+<pre><code>cor(train2$gyros_dumbbell_x, train2$gyros_dumbbell_z)</code></pre>
+<pre><code>## [1] -0.9789507</code></pre>
+<p>Removing strongly correlated variables from the training dataset will reduce the risk of overfitting on the training data, making our model more able to predict the correct output for other examples.</p>
+<p>New training and testing datasets are created dropping the high-correlated variables.</p>
+<pre><code>train3 &lt;- train2[, -excluded.vars]
+test3 &lt;- test2[, -excluded.vars]</code></pre>
+<p>Now each dataset have 50 variables.</p>
+<p>At this point, there is no need to impute/fill NA values, now that we have removed all the variables plagued by NA’s.</p>
+<pre><code>any(is.na(train3))</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<pre><code>any(is.na(test3))</code></pre>
+<pre><code>## [1] FALSE</code></pre>
+<p>Also, for the moment we aren’t making any transformation (centering, scaling, Box-Cox, etc.) on our datasets, because some of the models that we are specifying (classification trees and random forests) are not affected by monotone transformation of data, while in others “model based” algorithms (LDA, QDA, etc.) is possible to specify an embedded <code>preProcess</code> clause.</p>
+</div>
+
+<div id="ml-models-specification">
+<h2>
+<a id="ml-models-specification" class="anchor" href="#ml-models-specification" aria-hidden="true"><span class="octicon octicon-link"></span></a>ML models specification</h2>
+<p>We have 2 datasets: training and testing set. Training set is big enough to be divided in 2 parts: a real <strong>training set</strong> and a <strong>validation set</strong>, useful for out-of-sample errors evaluation of our classification. The <strong>testing set</strong> remains the same and it will be used to estimate and submit the exercise answers.</p>
+<p>We will use the 60% of observations for the <em>training set</em> and the remaining 40% for the <em>validation set</em>.</p>
+<pre><code>inTrain &lt;- createDataPartition(y=train3$classe, p=0.6, list=FALSE)
+training &lt;- train3[inTrain, ]
+validation &lt;- train3[-inTrain, ]</code></pre>
+<p>Removing the “problem_id” variable, progressive variable not present in training set.</p>
+<pre><code>testing &lt;- test3[,-50]</code></pre>
+<div id="model-based-methods">
+<h3>
+<a id="model-based-methods" class="anchor" href="#model-based-methods" aria-hidden="true"><span class="octicon octicon-link"></span></a>Model based methods</h3>
+<div id="first-model-linear-discriminant-analysis">
+<h4>
+<a id="first-model-linear-discriminant-analysis" class="anchor" href="#first-model-linear-discriminant-analysis" aria-hidden="true"><span class="octicon octicon-link"></span></a>First model: linear discriminant analysis</h4>
+<p>The first model based method we’ll try is the linear discriminant analysis. Command specification is quite easy, as it doesn’t require tuning parameters.</p>
+<pre><code>fitLDA &lt;- train(classe ~ ., data = training, method="lda", preProcess = c("center","scale"))
+predFitLDA &lt;- predict(fitLDA, newdata=validation)
+confMatLDA &lt;- confusionMatrix(predFitLDA, validation$classe)</code></pre>
+</div>
+
+<div id="second-model-quadratic-discriminant-analysis">
+<h4>
+<a id="second-model-quadratic-discriminant-analysis" class="anchor" href="#second-model-quadratic-discriminant-analysis" aria-hidden="true"><span class="octicon octicon-link"></span></a>Second model: quadratic discriminant analysis</h4>
+<p>The second method is the quadratic discriminant analysis.</p>
+<pre><code>fitQDA &lt;- train(classe ~ ., data = training, method="qda", preProcess = c("center","scale"))
+predFitQDA &lt;- predict(fitQDA, newdata=validation)
+confMatQDA &lt;- confusionMatrix(predFitQDA, validation$classe)</code></pre>
+</div>
+
+<p></p>
+</div>
+</div>
+
+<div id="predicting-with-trees-and-random-forests">
+<h2>
+<a id="predicting-with-trees-and-random-forests" class="anchor" href="#predicting-with-trees-and-random-forests" aria-hidden="true"><span class="octicon octicon-link"></span></a>Predicting with trees and random forests</h2>
+<div id="first-model-classification-tree">
+<h3>
+<a id="first-model-classification-tree" class="anchor" href="#first-model-classification-tree" aria-hidden="true"><span class="octicon octicon-link"></span></a>First model: classification tree</h3>
+<p>I’m specifying a classification tree on the training set, using a 4-fold cross-validation to reduce the risk of overfitting.</p>
+<pre><code>fitCT &lt;- train(classe ~ ., data = training, trControl = trainControl(method = "cv", number = 4), method="rpart")
+predFitCT &lt;- predict(fitCT, newdata=validation)
+confMatCT &lt;- confusionMatrix(predFitCT, validation$classe)</code></pre>
+<pre><code>plot(fitCT$finalModel, main="Classification tree")
+text(fitCT$finalModel, cex=0.8, all = T, pretty=T, use.n = T)</code></pre>
+<p><img title alt width="768"></p>
+<p>Previously I tried some different specification of the classification tree parameters, changing the cross validation/resampling method or adding a center/scale transformation on the data. The only result I got is a different accuracy (calculated only on the training data), but the “out of sample” accuracy, sensitivity and specificity of predictions remains the same.</p>
+<p>Some examples:</p>
+<pre><code>fitCT2 &lt;- train(classe~., data=training, method="rpart", trControl =  trainControl(method="repeatedcv", number = 4, repeats = 10))
+fitCT3 &lt;- train(classe~., data=training, method="rpart", trControl =  trainControl(method="boot", repeats = 25))
+fitCT4 &lt;- train(classe~., data=training, method="rpart", trControl =  trainControl(method="cv", number = 4), preProcess=c("center","scale"))
+predFitCT2 &lt;- predict(fitCT2, newdata=validation)
+predFitCT3 &lt;- predict(fitCT3, newdata=validation)
+predFitCT4 &lt;- predict(fitCT4, newdata=validation)
+confMatCT2 &lt;- confusionMatrix(predFitCT2, validation$classe)
+confMatCT3 &lt;- confusionMatrix(predFitCT3, validation$classe)
+confMatCT4 &lt;- confusionMatrix(predFitCT4, validation$classe)
+confMatCT2$byClass</code></pre>
+<pre><code>##          Sensitivity Specificity Pos Pred Value Neg Pred Value Prevalence
+## Class: A   0.7011649   0.9351621      0.8113012      0.8872740  0.2844762
+## Class: B   0.5388669   0.8855879      0.5304799      0.8889594  0.1934744
+## Class: C   0.8552632   0.7107132      0.3843627      0.9587672  0.1743564
+## Class: D   0.2674961   0.9614329      0.5762144      0.8700510  0.1639052
+## Class: E   0.4244105   0.9809494      0.8337875      0.8832958  0.1837879
+##          Detection Rate Detection Prevalence Balanced Accuracy
+## Class: A     0.19946470           0.24585776         0.8181635
+## Class: B     0.10425695           0.19653327         0.7122274
+## Class: C     0.14912057           0.38796839         0.7829882
+## Class: D     0.04384400           0.07608973         0.6144645
+## Class: E     0.07800153           0.09355085         0.7026800</code></pre>
+<pre><code>confMatCT3$byClass</code></pre>
+<pre><code>##          Sensitivity Specificity Pos Pred Value Neg Pred Value Prevalence
+## Class: A   0.7011649   0.9351621      0.8113012      0.8872740  0.2844762
+## Class: B   0.5388669   0.8855879      0.5304799      0.8889594  0.1934744
+## Class: C   0.8552632   0.7107132      0.3843627      0.9587672  0.1743564
+## Class: D   0.2674961   0.9614329      0.5762144      0.8700510  0.1639052
+## Class: E   0.4244105   0.9809494      0.8337875      0.8832958  0.1837879
+##          Detection Rate Detection Prevalence Balanced Accuracy
+## Class: A     0.19946470           0.24585776         0.8181635
+## Class: B     0.10425695           0.19653327         0.7122274
+## Class: C     0.14912057           0.38796839         0.7829882
+## Class: D     0.04384400           0.07608973         0.6144645
+## Class: E     0.07800153           0.09355085         0.7026800</code></pre>
+<pre><code>confMatCT4$byClass</code></pre>
+<pre><code>##          Sensitivity Specificity Pos Pred Value Neg Pred Value Prevalence
+## Class: A   0.7011649   0.9351621      0.8113012      0.8872740  0.2844762
+## Class: B   0.5388669   0.8855879      0.5304799      0.8889594  0.1934744
+## Class: C   0.8552632   0.7107132      0.3843627      0.9587672  0.1743564
+## Class: D   0.2674961   0.9614329      0.5762144      0.8700510  0.1639052
+## Class: E   0.4244105   0.9809494      0.8337875      0.8832958  0.1837879
+##          Detection Rate Detection Prevalence Balanced Accuracy
+## Class: A     0.19946470           0.24585776         0.8181635
+## Class: B     0.10425695           0.19653327         0.7122274
+## Class: C     0.14912057           0.38796839         0.7829882
+## Class: D     0.04384400           0.07608973         0.6144645
+## Class: E     0.07800153           0.09355085         0.7026800</code></pre>
+</div>
+
+<div id="second-model-random-forest">
+<h3>
+<a id="second-model-random-forest" class="anchor" href="#second-model-random-forest" aria-hidden="true"><span class="octicon octicon-link"></span></a>Second model: random forest</h3>
+<p>I’m specifying a random forest on the training set, with a 4-fold cross validation on training data.</p>
+<pre><code>fitRF &lt;- train(classe ~ ., data = training, method="rf", trControl = trainControl(method = "cv", number = 4))
+predFitRF &lt;- predict(fitRF, newdata=validation)
+confMatRF &lt;- confusionMatrix(predFitRF, validation$classe)</code></pre>
+</div>
+
+<p></p>
+</div>
+
+<div id="models-evaluation">
+<h2>
+<a id="models-evaluation" class="anchor" href="#models-evaluation" aria-hidden="true"><span class="octicon octicon-link"></span></a>Models evaluation</h2>
+<div id="reading-the-confusion-matrix">
+<h3>
+<a id="reading-the-confusion-matrix" class="anchor" href="#reading-the-confusion-matrix" aria-hidden="true"><span class="octicon octicon-link"></span></a>Reading the confusion matrix</h3>
+<p>The more interesting values that we can find in the confusion matrix are: * <strong>overall accuracy</strong>: the global proportion of guessed predictions in the validation/testing set; And for each response variable class:</p>
+<ul>
+<li><p><strong>sensitivity</strong> or true positive rate. If our class of interest is \(X\), this is defined as \(\frac{\text{# of estimated} X}{\text{# of real} X}\). This is evaluated for every class;</p></li>
+<li><p>the <strong>specificity</strong> or true negative rate: defined as \(\frac{\text{# of estimated} \overline{X}}{\text{# of real} \overline{X}}\);</p></li>
+<li><p>the <strong>precision or positive predictive value</strong>: among those estimated of class \(X\), how many really belongs to class \(X\)?;</p></li>
+<li><p>the <strong>negative predictive value</strong> among those estimated of class \(\overline{X}\), how many really belongs to class \(\overline{X}\)?</p></li>
+</ul>
+</div>
+
+<div id="linear-discriminant-analysis-results">
+<h3>
+<a id="linear-discriminant-analysis-results" class="anchor" href="#linear-discriminant-analysis-results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Linear discriminant analysis results</h3>
+<pre><code>confMatLDA</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1879  216  127   63   62
+##          B   84  981  100   88  201
+##          C  106  211  904  179  127
+##          D  159   57  197  894  191
+##          E    4   53   40   62  861
+## 
+## Overall Statistics
+##                                           
+##                Accuracy : 0.7034          
+##                  95% CI : (0.6932, 0.7135)
+##     No Information Rate : 0.2845          
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16       
+##                                           
+##                   Kappa : 0.6245          
+##  Mcnemar's Test P-Value : &lt; 2.2e-16       
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.8418   0.6462   0.6608   0.6952   0.5971
+## Specificity            0.9166   0.9253   0.9038   0.9079   0.9752
+## Pos Pred Value         0.8006   0.6747   0.5920   0.5968   0.8441
+## Neg Pred Value         0.9358   0.9160   0.9266   0.9382   0.9149
+## Prevalence             0.2845   0.1935   0.1744   0.1639   0.1838
+## Detection Rate         0.2395   0.1250   0.1152   0.1139   0.1097
+## Detection Prevalence   0.2991   0.1853   0.1946   0.1909   0.1300
+## Balanced Accuracy      0.8792   0.7857   0.7823   0.8016   0.7861</code></pre>
+</div>
+
+<div id="quadratic-discriminant-analysis-results">
+<h3>
+<a id="quadratic-discriminant-analysis-results" class="anchor" href="#quadratic-discriminant-analysis-results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Quadratic discriminant analysis results</h3>
+<pre><code>confMatQDA</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 2164   42    0    0    0
+##          B   66 1439   44    0    0
+##          C    2   37 1315  118    8
+##          D    0    0    9 1158   25
+##          E    0    0    0   10 1409
+## 
+## Overall Statistics
+##                                           
+##                Accuracy : 0.954           
+##                  95% CI : (0.9491, 0.9585)
+##     No Information Rate : 0.2845          
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16       
+##                                           
+##                   Kappa : 0.9418          
+##  Mcnemar's Test P-Value : NA              
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.9695   0.9480   0.9613   0.9005   0.9771
+## Specificity            0.9925   0.9826   0.9745   0.9948   0.9984
+## Pos Pred Value         0.9810   0.9290   0.8885   0.9715   0.9930
+## Neg Pred Value         0.9879   0.9875   0.9917   0.9808   0.9949
+## Prevalence             0.2845   0.1935   0.1744   0.1639   0.1838
+## Detection Rate         0.2758   0.1834   0.1676   0.1476   0.1796
+## Detection Prevalence   0.2812   0.1974   0.1886   0.1519   0.1809
+## Balanced Accuracy      0.9810   0.9653   0.9679   0.9476   0.9878</code></pre>
+</div>
+
+<div id="classification-tree-results">
+<h3>
+<a id="classification-tree-results" class="anchor" href="#classification-tree-results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Classification tree results</h3>
+<pre><code>confMatCT</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1565  239   32   73   20
+##          B  109  818   99  284  232
+##          C  483  409 1170  475  507
+##          D   73   44   65  344   71
+##          E    2    8    2  110  612
+## 
+## Overall Statistics
+##                                           
+##                Accuracy : 0.5747          
+##                  95% CI : (0.5637, 0.5857)
+##     No Information Rate : 0.2845          
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16       
+##                                           
+##                   Kappa : 0.4648          
+##  Mcnemar's Test P-Value : &lt; 2.2e-16       
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.7012   0.5389   0.8553  0.26750  0.42441
+## Specificity            0.9352   0.8856   0.7107  0.96143  0.98095
+## Pos Pred Value         0.8113   0.5305   0.3844  0.57621  0.83379
+## Neg Pred Value         0.8873   0.8890   0.9588  0.87005  0.88330
+## Prevalence             0.2845   0.1935   0.1744  0.16391  0.18379
+## Detection Rate         0.1995   0.1043   0.1491  0.04384  0.07800
+## Detection Prevalence   0.2459   0.1965   0.3880  0.07609  0.09355
+## Balanced Accuracy      0.8182   0.7122   0.7830  0.61446  0.70268</code></pre>
+</div>
+
+<div id="random-forest-results">
+<h3>
+<a id="random-forest-results" class="anchor" href="#random-forest-results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Random forest results</h3>
+<pre><code>confMatRF</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 2230    1    0    0    0
+##          B    0 1517    1    0    0
+##          C    0    0 1367    4    0
+##          D    0    0    0 1282    0
+##          E    2    0    0    0 1442
+## 
+## Overall Statistics
+##                                          
+##                Accuracy : 0.999          
+##                  95% CI : (0.998, 0.9996)
+##     No Information Rate : 0.2845         
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16      
+##                                          
+##                   Kappa : 0.9987         
+##  Mcnemar's Test P-Value : NA             
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            0.9991   0.9993   0.9993   0.9969   1.0000
+## Specificity            0.9998   0.9998   0.9994   1.0000   0.9997
+## Pos Pred Value         0.9996   0.9993   0.9971   1.0000   0.9986
+## Neg Pred Value         0.9996   0.9998   0.9998   0.9994   1.0000
+## Prevalence             0.2845   0.1935   0.1744   0.1639   0.1838
+## Detection Rate         0.2842   0.1933   0.1742   0.1634   0.1838
+## Detection Prevalence   0.2843   0.1935   0.1747   0.1634   0.1840
+## Balanced Accuracy      0.9995   0.9996   0.9993   0.9984   0.9998</code></pre>
+<p>The <strong>random forest</strong> classification method is the <strong>best</strong> under any point of view. His confusion matrix shows very good results:</p>
+<ul>
+<li><p>the accuracy is over 99.9%</p></li>
+<li><p>the sensitivity is very high for each class, always over 99.8%</p></li>
+<li><p>the specificity is very high for each class, always over 99.9%</p></li>
+<li><p>the positive predictive value is very high for each class, always over 99.8%</p></li>
+<li><p>the negative predictive is very high for each class, always over 99.9%</p></li>
+</ul>
+<p>This is the chosen ML method used to predict the <em>class</em> variable in the <strong>testing</strong> dataset.</p>
+</div>
+
+<p></p>
+</div>
+
+<div id="final-results">
+<h2>
+<a id="final-results" class="anchor" href="#final-results" aria-hidden="true"><span class="octicon octicon-link"></span></a>Final results</h2>
+<p>This function create a single file for each prediction.</p>
+<pre><code>pml_write_files = function(x) {
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+
+setwd("/Users/gianluca/Documents/PML/prediction_assignment")
+testingPred &lt;- predict(fitRF, newdata = testing)
+
+# Predictions made on the testing set
+testingPred</code></pre>
+<pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
+## Levels: A B C D E</code></pre>
+<pre><code># Writing one file per predicted outcome on the testing set
+pml_write_files(testingPred)</code></pre>
+</div>
+
+<p></p>
+</div>
+
+<p></p>
+</div>
+
+
+
+
+
+
+
+<p>
+</p>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/genfri">genfri</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
